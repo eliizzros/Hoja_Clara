@@ -1,0 +1,23 @@
+table {
+    border-collapse: collapse;
+    table-layout: fixed;
+}
+
+thead,
+tr td:first-child {
+    background: #eee;
+}
+
+tr th,
+tr td {
+    border: 1px solid #ccc;
+    font-weight: normal;
+    font-size: 12px;
+    text-align: center;
+    width: 75px;
+    height: 20px;
+}
+
+input {
+    border: 0;
+}
