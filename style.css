@@ -16,8 +16,25 @@ tr td {
     text-align: center;
     width: 75px;
     height: 20px;
+    vertical-align: middle;
+    position: relative;
 }
+span, input{
+    position: absolute;
+    inset: 0;
+    vertical-align: middle;
+    display: inline-flex;
+    justify-content: center;
+    align-items: center;
+    
+}
+
 
 input {
     border: 0;
+    border-radius: 2px;
+    &:focus{
+        opacity: 1;
+        outline:  2px solid #09f;
+    }
 }
