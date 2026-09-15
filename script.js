@@ -1,14 +1,19 @@
 // DA TODAS LAS CONSTANTES CON LAS QUE SE TRABAJA
 
 const $ = el => document.querySelector(el);
+
 const $$ = el => document.querySelectorAll(el);
 
 const $table = $("table");
+
 const $head = $("thead");
+
 const $body = $("tbody");
 
 const COLUMNS = 15;
+
 const ROWS = 10;
+
 const FIRST_CHAR_CODE = 65;
 
 const range = length =>
@@ -24,6 +29,40 @@ let State = range(COLUMNS).map(x =>
     }))
 );
 
+//GUARDAR LOS DATOS
+const savedState = localStorage.getItem("spreadsheetState");
+
+if (savedState) {
+    State = JSON.parse(savedState);
+}
+
+
+// EXPORTAR 
+function exportCSV() {
+    let csv = "";
+
+    State.forEach((column, x) => {
+        column.forEach((cell, y) => {
+            csv += `${getColumn(x)}${y + 1},${cell.computedValue}\n`;
+        });
+    });
+
+    const blob = new Blob([csv], {
+        type: "text/csv"
+    });
+
+    const url = URL.createObjectURL(blob);
+
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "spreadsheet.csv";
+    a.click();
+
+    URL.revokeObjectURL(url);
+}
+
+
+
 
 // OBTENER LETRA DE COLUMNA
 
@@ -35,25 +74,30 @@ function getColumn(index) {
 // ACTUALIZAR CELDA
 
 function updateCell([x, y, value]) {
-
     const newState = structuredClone(State);
-    const constants = generateCellsConstants (newState) 
-
     const cell = newState[x][y];
 
-    // Primero guardamos el valor que escribió el usuario
     cell.value = value;
-
-    // Calculamos el resultado
-    cell.computedValue = computedValue(value, constants);
-
     newState[x][y] = cell;
 
-        computeAllCells(newState, constants)
-    State = newState;
+    const constants = generateCellsConstants(newState);
 
+    cell.computedValue = computedValue(value, constants, newState);
+
+    computeAllCells(newState);
+    
+    State = newState;
+    saveState();
     renderSpreadsheet();
 }
+
+function saveState() {
+    localStorage.setItem("spreadsheetState", 
+        JSON.stringify(State));
+}
+
+
+
 
 
 // GENERAR CONSTANTES
@@ -63,41 +107,134 @@ function generateCellsConstants(cells) {
         return row.map((cell, y) => {
             const letter = getColumn(x);
             const cellId = `${letter}${y + 1}`;
-            return `const ${cellId} = ${cell.computedValue};`;
+
+            const value = cell.computedValue === "" ? 0 : cell.computedValue;
+
+            return `const ${cellId} = ${JSON.stringify(value)};`;
         }).join("\n");
     }).join("\n");
 }
 
-function computeAllCells(cells, constants){
+
+// CALCULAR TODAS LAS CELDAS
+
+function computeAllCells(cells) {
     cells.forEach((rows, x) => {
         rows.forEach((cell, y) => {
-            const result = computedValue(cell.value, constants);
+
+            const constants = generateCellsConstants(cells);
+
+            const result = computedValue(
+                cell.value,
+                constants,
+                cells
+            );
+
             cell.computedValue = result;
         });
     });
 }
 
 
-
-
 // CALCULAR FORMULA
 
-function computedValue(value, constants) {
+function computedValue(value, constants, cells) {
 
-    // Si no es una fórmula, dejamos exactamente lo que escribio el usuario
-    if (typeof value === 'number') return value
+    if (typeof value === "number") return value;
+
     if (!value.startsWith("=")) {
         return value;
     }
+
     const formula = value.slice(1);
-    let computedValue
+
+    const formulaWithRanges = formula.replace(
+        /([A-Z]+\d+):([A-Z]+\d+)/g,
+        'getRange("$1", "$2")'
+    );
+
     try {
+
         return eval(`(() => {
+
             ${constants}
-            return ${formula};
+
+            const getRange = (start, end) => {
+
+                const startColumn =
+                    start.charCodeAt(0) - FIRST_CHAR_CODE;
+
+                const startRow =
+                    parseInt(start.slice(1)) - 1;
+
+                const endColumn =
+                    end.charCodeAt(0) - FIRST_CHAR_CODE;
+
+                const endRow =
+                    parseInt(end.slice(1)) - 1;
+
+                const values = [];
+
+                for (let x = startColumn; x <= endColumn; x++) {
+
+                    for (let y = startRow; y <= endRow; y++) {
+
+                        values.push(
+                            cells[x][y].computedValue
+                        );
+
+                    }
+
+                }
+
+                return values;
+            };
+
+
+            const SUMA = (...values) =>
+                values
+                    .flat()
+                    .reduce(
+                        (total, value) =>
+                            total + Number(value),
+                        0
+                    );
+
+
+            const PROMEDIO = (...values) => {
+
+                const numbers =
+                    values.flat().map(Number);
+
+                return numbers.reduce(
+                    (total, value) =>
+                        total + value,
+                    0
+                ) / numbers.length;
+
+            };
+
+
+            const MAX = (...values) =>
+                Math.max(
+                    ...values.flat().map(Number)
+                );
+
+
+            const MIN = (...values) =>
+                Math.min(
+                    ...values.flat().map(Number)
+                );
+
+
+            return ${formulaWithRanges};
+
         })()`);
+
     } catch (e) {
+
         return `!ERROR: ${e.message}`;
+
     }
 }
 
@@ -111,6 +248,7 @@ $body.addEventListener("click", event => {
     if (!td) return;
 
     // Ignorar la columna de números de fila
+
     if (!td.dataset.x || !td.dataset.y) return;
 
     const { x, y } = td.dataset;
@@ -123,8 +261,10 @@ $body.addEventListener("click", event => {
 
     input.select();
 
+
     // Evitamos agregar varios eventos
     // a la misma celda
+
     if (input.dataset.listener === "true") {
         return;
     }
@@ -133,6 +273,7 @@ $body.addEventListener("click", event => {
 
 
     // ENTER = guardar
+
     input.addEventListener("keydown", event => {
 
         if (event.key === "Enter") {
@@ -147,6 +288,7 @@ $body.addEventListener("click", event => {
 
 
     // AL SALIR DE LA CELDA = guardar
+
     input.addEventListener("blur", () => {
 
         const value = input.value;
@@ -156,7 +298,9 @@ $body.addEventListener("click", event => {
             state: State[x][y].value
         });
 
+
         // Si no cambió, no hacemos nada
+
         if (value === String(State[x][y].value)) {
             return;
         }
@@ -173,14 +317,23 @@ $body.addEventListener("click", event => {
 const renderSpreadsheet = () => {
 
     const headerHTML = `
+
         <tr>
+
             <th></th>
 
             ${range(COLUMNS).map(i => `
-                <th>${String.fromCharCode(FIRST_CHAR_CODE + i)}</th>
+
+                <th>
+                    ${String.fromCharCode(
+                        FIRST_CHAR_CODE + i
+                    )}
+                </th>
+
             `).join("")}
 
         </tr>
+
     `;
 
     $head.innerHTML = headerHTML;
@@ -190,19 +343,26 @@ const renderSpreadsheet = () => {
 
         <tr>
 
-            <td>${row + 1}</td>
+            <td>
+                ${row + 1}
+            </td>
+
 
             ${range(COLUMNS).map(column => {
 
-                const cell = State[column][row];
+                const cell =
+                    State[column][row];
 
                 return `
+
                     <td
                         data-x="${column}"
                         data-y="${row}"
                     >
 
-                        <span>${cell.computedValue}</span>
+                        <span>
+                            ${cell.computedValue}
+                        </span>
 
                         <input
                             type="text"
@@ -210,6 +370,7 @@ const renderSpreadsheet = () => {
                         >
 
                     </td>
+
                 `;
 
             }).join("")}
@@ -218,68 +379,135 @@ const renderSpreadsheet = () => {
 
     `).join("");
 
+
     $body.innerHTML = bodyHTML;
+
 };
+
+
+// SELECCIÓN DE TODA LA COLUMNA
 
 let selectedColumn = null;
 
 $head.addEventListener('click', event => {
 
     const th = event.target.closest('th');
+
     if (!th) return;
 
-    const x = [...th.parentNode.children].indexOf(th);
+    const x =
+        [...th.parentNode.children].indexOf(th);
 
     console.log("TH:", th);
+
     console.log("X:", x);
 
     if (x === 0) return;
 
     selectedColumn = x - 1;
 
-    $$(`tbody tr td:nth-child(${x + 1})`).forEach(el => {
+
+    $$(
+        `tbody tr td:nth-child(${x + 1})`
+    ).forEach(el => {
+
         el.classList.add('selected');
 
-        document.addEventListener('keydown', event=> {
-            if(event.key=== 'Backspace' && selectedColumn === null){
-                times (ROWS).forEach(row=> {
-                        updateCell({x:selectedColumn, y:row, value:'' })
-                        renderSpreadsheet
-
-                })
-
-            }
-
-        })
-
     });
+
 });
 
-document.addEventListener('copy', event => {
-    if (selectedColumn !== null) {
-    const columnValues = times(ROWS).map(row => {
-        return STATE[selectedColumn][row].computedValue
-    })
 
-    event.clipboardData.setData('text/plain', columnValues.join('\n'))
-    event.preventDefault()
+// COPIAR COLUMNA
+
+document.addEventListener('copy', event => {
+
+    if (selectedColumn !== null) {
+
+        const columnValues =
+            range(ROWS).map(row => {
+
+                return State[
+                    selectedColumn
+                ][row].computedValue;
+
+            });
+
+
+        event.clipboardData.setData(
+            'text/plain',
+            columnValues.join('\n')
+        );
+
+        event.preventDefault();
+
     }
-})
+
+});
+
+
+// QUITAR SELECCIÓN
 
 document.addEventListener('click', event => {
-    const { target } = event
 
-    const isThClicked = target.closest('th')
-    const isTdClicked = target.closest('td')
+    const { target } = event;
+
+    const isThClicked =
+        target.closest('th');
+
+    const isTdClicked =
+        target.closest('td');
+
 
     if (!isThClicked && !isTdClicked) {
-    $$('.selected').forEach(el => el.classList.remove('selected'))
-    selectedColumn = null
+
+        $$('.selected').forEach(el =>
+            el.classList.remove('selected')
+        );
+
+        selectedColumn = null;
+
     }
-})
+
+});
 
 
 
+
+
+// TERMINAR LA ESPORTACION 
+function saveState() {
+    localStorage.setItem("spreadsheetState", JSON.stringify(State));
+}
+
+
+function exportCSV() {
+    let csv = "";
+
+    State.forEach((column, x) => {
+        column.forEach((cell, y) => {
+            csv += `${getColumn(x)}${y + 1},${cell.computedValue}\n`;
+        });
+    });
+
+    const blob = new Blob([csv], {
+        type: "text/csv"
+    });
+
+    const url = URL.createObjectURL(blob);
+
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "spreadsheet.csv";
+    a.click();
+
+    URL.revokeObjectURL(url);
+}
+
+
+const $exportar = $("#exportar");
+
+$exportar.addEventListener("click", exportCSV);
 
 // PRIMER RENDER
 

@@ -46,5 +46,14 @@ input {
 
 
 th.selected{
-    background: rgb;
+    background: rgb(200, 250, 255);
+}
+
+
+button{
+        margin: 25px;
+        background-color:  #92c931;
+        height: 50px;
+        
+
 }
