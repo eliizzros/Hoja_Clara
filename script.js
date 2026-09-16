@@ -77,15 +77,17 @@ function updateCell([x, y, value]) {
     const newState = structuredClone(State);
     const cell = newState[x][y];
 
-    cell.value = value;
+    // Convertir a número si es numérico
+    if (typeof value === "string" && value.trim() !== "" && !isNaN(value) && !value.startsWith("=")) {
+        cell.value = Number(value);
+    } else {
+        cell.value = value;
+    }
+
     newState[x][y] = cell;
 
-    const constants = generateCellsConstants(newState);
-
-    cell.computedValue = computedValue(value, constants, newState);
-
     computeAllCells(newState);
-    
+
     State = newState;
     saveState();
     renderSpreadsheet();
@@ -108,7 +110,27 @@ function generateCellsConstants(cells) {
             const letter = getColumn(x);
             const cellId = `${letter}${y + 1}`;
 
-            const value = cell.computedValue === "" ? 0 : cell.computedValue;
+            const value = cell.computedValue;
+
+            // Si es número válido, dejarlo como número
+            if (typeof value === "number" && !isNaN(value)) {
+                return `const ${cellId} = ${value};`;
+            }
+
+            // Si es string numérico, convertirlo a número
+            if (typeof value === "string" && value.trim() !== "" && !isNaN(value)) {
+                return `const ${cellId} = ${Number(value)};`;
+            }
+
+            // Si es error, tratarlo como 0
+            if (typeof value === "string" && value.startsWith("!ERROR")) {
+                return `const ${cellId} = 0;`;
+            }
+
+            // Texto o vacío -> 0 si es vacío, si no JSON.stringify
+            if (value === "" || value === null || value === undefined) {
+                return `const ${cellId} = 0;`;
+            }
 
             return `const ${cellId} = ${JSON.stringify(value)};`;
         }).join("\n");
@@ -119,20 +141,23 @@ function generateCellsConstants(cells) {
 // CALCULAR TODAS LAS CELDAS
 
 function computeAllCells(cells) {
-    cells.forEach((rows, x) => {
-        rows.forEach((cell, y) => {
+    // Varias pasadas para resolver dependencias en cadena
+    for (let pass = 0; pass < 3; pass++) {
+        cells.forEach((rows, x) => {
+            rows.forEach((cell, y) => {
 
-            const constants = generateCellsConstants(cells);
+                const constants = generateCellsConstants(cells);
 
-            const result = computedValue(
-                cell.value,
-                constants,
-                cells
-            );
+                const result = computedValue(
+                    cell.value,
+                    constants,
+                    cells
+                );
 
-            cell.computedValue = result;
+                cell.computedValue = result;
+            });
         });
-    });
+    }
 }
 
 
@@ -142,7 +167,12 @@ function computedValue(value, constants, cells) {
 
     if (typeof value === "number") return value;
 
-    if (!value.startsWith("=")) {
+    // Números guardados como string
+    if (typeof value === "string" && value.trim() !== "" && !isNaN(value) && !value.startsWith("=")) {
+        return Number(value);
+    }
+
+    if (typeof value !== "string" || !value.startsWith("=")) {
         return value;
     }
 
@@ -195,8 +225,10 @@ function computedValue(value, constants, cells) {
                 values
                     .flat()
                     .reduce(
-                        (total, value) =>
-                            total + Number(value),
+                        (total, value) => {
+                            const n = Number(value);
+                            return total + (isNaN(n) ? 0 : n);
+                        },
                         0
                     );
 
@@ -204,7 +236,9 @@ function computedValue(value, constants, cells) {
             const PROMEDIO = (...values) => {
 
                 const numbers =
-                    values.flat().map(Number);
+                    values.flat().map(Number).filter(n => !isNaN(n));
+
+                if (numbers.length === 0) return 0;
 
                 return numbers.reduce(
                     (total, value) =>
@@ -217,13 +251,13 @@ function computedValue(value, constants, cells) {
 
             const MAX = (...values) =>
                 Math.max(
-                    ...values.flat().map(Number)
+                    ...values.flat().map(Number).filter(n => !isNaN(n))
                 );
 
 
             const MIN = (...values) =>
                 Math.min(
-                    ...values.flat().map(Number)
+                    ...values.flat().map(Number).filter(n => !isNaN(n))
                 );
 
 
@@ -470,39 +504,6 @@ document.addEventListener('click', event => {
     }
 
 });
-
-
-
-
-
-// TERMINAR LA ESPORTACION 
-function saveState() {
-    localStorage.setItem("spreadsheetState", JSON.stringify(State));
-}
-
-
-function exportCSV() {
-    let csv = "";
-
-    State.forEach((column, x) => {
-        column.forEach((cell, y) => {
-            csv += `${getColumn(x)}${y + 1},${cell.computedValue}\n`;
-        });
-    });
-
-    const blob = new Blob([csv], {
-        type: "text/csv"
-    });
-
-    const url = URL.createObjectURL(blob);
-
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "spreadsheet.csv";
-    a.click();
-
-    URL.revokeObjectURL(url);
-}
 
 
 const $exportar = $("#exportar");
